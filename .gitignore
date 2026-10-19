@@ -1,0 +1,10 @@
+# Private inventory data must never be published
+/output/
+*.inventory.json
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.env
+.env.*
+!.env.example

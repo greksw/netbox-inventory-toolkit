@@ -1,0 +1,23 @@
+{
+  "schema_version": "0.1",
+  "collected_at": "2026-10-19T12:00:00+00:00",
+  "source": {
+    "tool": "pvesh",
+    "cluster_label": "corp-cluster",
+    "collector_host": "pve01"
+  },
+  "nodes": [
+    {
+      "name": "pve01",
+      "cpu": {"model": "Example CPU", "sockets": 1, "cores": 8, "threads": 16},
+      "memory_total_bytes": 34359738368,
+      "dmi": {"manufacturer": "Example Vendor", "model": "Example Hardware Model"},
+      "network_interfaces": [
+        {"name": "eno1", "type": "eth", "active": 1},
+        {"name": "vmbr0", "type": "bridge", "bridge_ports": "eno1", "ipv4_cidr": "192.0.2.10/24", "method": "static"}
+      ]
+    }
+  ],
+  "errors": [],
+  "summary": {"selected": 1, "collected": 1, "errors": 0}
+}
