@@ -7,6 +7,7 @@ from unittest.mock import patch
 from collectors.proxmox_inventory import (
     CollectionError, collect, normalize_interface, normalize_node,
     save_json, validate_node, remote_dmi, audit_network, normalize_mac, serial_valid,
+    parse_mac_records, local_physical_nic_macs, merge_physical_macs,
 )
 
 
@@ -157,6 +158,64 @@ class ProxmoxInventoryTests(unittest.TestCase):
                    side_effect=PermissionError):
             from collectors.proxmox_inventory import local_dmi
             self.assertEqual(local_dmi(), {})
+
+    def test_mac_parser_accepts_only_valid_names_and_unicast(self):
+        values = parse_mac_records(
+            "eno1=02:11:22:33:44:55\n"
+            "vmbr0=ff:ff:ff:ff:ff:ff\n"
+            "bad/name=02:01:02:03:04:05\n"
+            "eth1=00:00:00:00:00:00\n"
+            "eth2=01:00:5e:00:00:01\n"
+        )
+        self.assertEqual(values, {"eno1": "02:11:22:33:44:55"})
+
+    def test_local_mac_reads_hardware_interfaces_only(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / "eno1").mkdir()
+            (root / "eno1" / "device").touch()
+            (root / "eno1" / "address").write_text("02:00:00:00:01:23\n")
+            (root / "vmbr0").mkdir()
+            (root / "vmbr0" / "address").write_text("02:00:00:00:01:24\n")
+            self.assertEqual(
+                local_physical_nic_macs(root),
+                {"eno1": "02:00:00:00:01:23"}
+            )
+
+    def test_merging_macs_does_not_assign_virtual_interface(self):
+        node = normalize_node("pve01", {}, [
+            {"iface": "eno1", "type": "eth"},
+            {"iface": "vmbr0", "type": "bridge", "bridge_ports": "eno1"},
+        ])
+        merge_physical_macs(node, {
+            "eno1": "02:00:00:00:11:22",
+            "vmbr0": "02:00:00:00:aa:bb",
+        })
+        self.assertEqual(node["network_audit"]["mac_count"], 1)
+        self.assertNotIn("mac_address", next(
+            item for item in node["network_interfaces"] if item["name"] == "vmbr0"
+        ))
+
+    @patch("collectors.proxmox_inventory.local_physical_nic_macs",
+           return_value={"eno1": "02:00:00:00:11:22"})
+    def test_local_mac_merged_by_default(self, _mock):
+        result = collect(FakePvesh(FIXTURES), requested=["pve01"], local_name="pve01")
+        self.assertEqual(result["audit_summary"]["mac_addresses"], 1)
+        self.assertEqual(result["schema_version"], "0.3")
+
+    @patch("collectors.proxmox_inventory.remote_physical_nic_macs",
+           side_effect=CollectionError("SSH denied"))
+    def test_remote_mac_failure_is_reported(self, remote):
+        result = collect(FakePvesh(FIXTURES), requested=["pve02"], local_name="pve01",
+                         include_remote_macs=True)
+        self.assertEqual([x["stage"] for x in result["errors"]], ["mac"])
+        self.assertEqual(result["summary"]["errors"], 1)
+        remote.assert_called_once_with("pve02", "root", 5)
+
+    def test_no_remote_mac_without_flag(self):
+        with patch("collectors.proxmox_inventory.remote_physical_nic_macs") as remote:
+            collect(FakePvesh(FIXTURES), requested=["pve02"], local_name="pve01")
+            remote.assert_not_called()
 
 
 if __name__ == "__main__":
