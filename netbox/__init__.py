@@ -1,0 +1,1 @@
+# Read-only NetBox integration namespace.
