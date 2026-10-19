@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from collectors.proxmox_inventory import (
     CollectionError, collect, normalize_interface, normalize_node,
-    save_json, validate_node, remote_dmi,
+    save_json, validate_node, remote_dmi, audit_network, normalize_mac, serial_valid,
 )
 
 
@@ -103,6 +103,60 @@ class ProxmoxInventoryTests(unittest.TestCase):
     def test_invalid_discovery_shape(self):
         with self.assertRaises(CollectionError):
             collect(FakePvesh({"/nodes": {"unexpected": 1}}))
+
+    def test_normalize_mac_from_api(self):
+        for field in ("hwaddress", "mac", "mac_address", "hwaddr"):
+            item = normalize_interface({
+                "iface": "eno1", "type": "eth",
+                field: "AA-BB-CC-DD-EE-01",
+            })
+            self.assertEqual(item["mac_address"], "aa:bb:cc:dd:ee:01")
+        self.assertIsNone(normalize_mac("auto"))
+        self.assertNotIn("mac_address", normalize_interface({
+            "iface": "eno1", "type": "eth", "hwaddress": "random"
+        }))
+
+    def test_serial_validity(self):
+        self.assertFalse(serial_valid("To Be Filled By O.E.M."))
+        self.assertFalse(serial_valid("Default String"))
+        self.assertTrue(serial_valid("TEST-000123"))
+
+    def test_network_topology_valid(self):
+        entries = [
+            normalize_interface({"iface": "eno1", "type": "eth", "hwaddress": "02:00:00:00:00:01"}),
+            normalize_interface({"iface": "eno1.200", "type": "vlan", "vlan-id": 200, "vlan-raw-device": "eno1"}),
+            normalize_interface({"iface": "vmbr200", "type": "bridge", "bridge_ports": "eno1.200"}),
+        ]
+        audit = audit_network(entries)
+        self.assertTrue(audit["topology_consistent"])
+        self.assertEqual(audit["vlan_with_id_count"], 1)
+        self.assertEqual(audit["vlan_with_parent_count"], 1)
+        self.assertEqual(audit["bridge_with_ports_count"], 1)
+        self.assertEqual(audit["mac_count"], 1)
+
+    def test_network_topology_missing_references(self):
+        entries = [
+            normalize_interface({"iface": "bond0", "type": "bond", "slaves": "eno1 eno2"}),
+            normalize_interface({"iface": "vlan200", "type": "vlan", "vlan-id": 200, "vlan-raw-device": "bond0"}),
+            normalize_interface({"iface": "vmbr0", "type": "bridge", "bridge_ports": "vlan200 missingport"}),
+        ]
+        audit = audit_network(entries)
+        self.assertFalse(audit["topology_consistent"])
+        self.assertEqual(sorted(i["code"] for i in audit["topology_issues"]),
+                         ["bond_slave_not_found", "bond_slave_not_found", "bridge_port_not_found"])
+
+    def test_topology_warning_not_silenced(self):
+        result = collect(FakePvesh(FIXTURES), local_name="collector")
+        self.assertGreater(result["audit_summary"]["topology_issues"], 0)
+        self.assertFalse(result["audit_summary"]["topology_review_passed"])
+        self.assertEqual(result["summary"]["errors"], 0)
+
+    def test_dmi_serial_is_not_read_without_permission(self):
+        # Missing/locked serials remain optional; no source is fabricated.
+        with patch("collectors.proxmox_inventory.Path.read_text",
+                   side_effect=PermissionError):
+            from collectors.proxmox_inventory import local_dmi
+            self.assertEqual(local_dmi(), {})
 
 
 if __name__ == "__main__":

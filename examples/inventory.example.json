@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.1",
+  "schema_version": "0.2",
   "collected_at": "2026-10-19T12:00:00+00:00",
   "source": {
     "tool": "pvesh",
@@ -11,13 +11,15 @@
       "name": "pve01",
       "cpu": {"model": "Example CPU", "sockets": 1, "cores": 8, "threads": 16},
       "memory_total_bytes": 34359738368,
-      "dmi": {"manufacturer": "Example Vendor", "model": "Example Hardware Model"},
+      "dmi": {"manufacturer": "Example Vendor", "model": "Example Hardware Model", "serial_number": "EXAMPLE-NOT-REAL"},
       "network_interfaces": [
-        {"name": "eno1", "type": "eth", "active": 1},
+        {"name": "eno1", "type": "eth", "active": 1, "mac_address": "02:00:00:00:00:01"},
         {"name": "vmbr0", "type": "bridge", "bridge_ports": "eno1", "ipv4_cidr": "192.0.2.10/24", "method": "static"}
-      ]
+      ],
+      "network_audit": {"interface_count": 2, "ipv4_count": 1, "ipv6_count": 0, "mac_count": 1, "vlan_count": 0, "vlan_with_id_count": 0, "vlan_with_parent_count": 0, "bridge_count": 1, "bridge_with_ports_count": 1, "topology_consistent": true, "topology_issues": []}
     }
   ],
   "errors": [],
-  "summary": {"selected": 1, "collected": 1, "errors": 0}
+  "summary": {"selected": 1, "collected": 1, "errors": 0},
+  "audit_summary": {"nodes_with_dmi": 1, "nodes_with_serial": 1, "mac_addresses": 1, "topology_issues": 0, "topology_review_passed": true}
 }

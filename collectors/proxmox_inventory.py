@@ -26,13 +26,99 @@ DMI_KEYS = {
     "product_name": "model",
     "product_version": "product_version",
     "board_name": "motherboard",
+    "product_serial": "serial_number",
 }
 DMI_PROBE = (
-    'for k in sys_vendor product_name product_version board_name; do '
+    'for k in sys_vendor product_name product_version board_name product_serial; do '
     'f="/sys/class/dmi/id/$k"; '
     'if [ -r "$f" ]; then printf "%s=" "$k"; '
     'tr "\\n" " " < "$f"; printf "\\n"; fi; done'
 )
+
+
+INVALID_SERIALS = {
+    "", "none", "unknown", "n/a", "not specified",
+    "to be filled by o.e.m.", "default string", "system serial number",
+}
+MAC_RE = re.compile(r"^(?:[0-9a-f]{2}:){5}[0-9a-f]{2}$")
+
+
+def serial_valid(value: str) -> bool:
+    return value.strip().casefold() not in INVALID_SERIALS
+
+
+def normalize_mac(value: Any) -> str | None:
+    """Record only a genuine six-octet value explicitly supplied by Proxmox."""
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip().lower().replace("-", ":")
+    return normalized if MAC_RE.fullmatch(normalized) else None
+
+
+def link_names(value: Any) -> list[str]:
+    """Split Proxmox interface references without guessing physical topology."""
+    if not isinstance(value, str):
+        return []
+    return [name for name in re.split(r"[\s,]+", value.strip())
+            if name and name.lower() != "none"]
+
+
+def audit_network(interfaces: list[dict[str, Any]]) -> dict[str, Any]:
+    """Non-destructive topology validation. Warnings demand human review."""
+    known = {item["name"] for item in interfaces}
+    issues: list[dict[str, str]] = []
+    vlan_total = vlan_ids = vlan_parents = bridges = bridges_with_ports = 0
+    ipv4_count = ipv6_count = mac_count = 0
+
+    def issue(iface: str, code: str, reference: str = "") -> None:
+        issues.append({"interface": iface, "code": code, "reference": reference})
+
+    if len(known) != len(interfaces):
+        issue("", "duplicate_interface_name")
+    for item in interfaces:
+        name = item["name"]
+        kind = item.get("type")
+        ipv4_count += int(bool(item.get("ipv4_cidr")))
+        ipv6_count += int(bool(item.get("ipv6_cidr")))
+        mac_count += int(bool(item.get("mac_address")))
+        if kind == "vlan":
+            vlan_total += 1
+            vlan_id = maybe_int(item.get("vlan_id"))
+            if vlan_id is not None and 1 <= vlan_id <= 4094:
+                vlan_ids += 1
+            else:
+                issue(name, "vlan_id_missing_or_invalid")
+            parent = item.get("vlan_raw_device")
+            if isinstance(parent, str) and parent.strip():
+                vlan_parents += 1
+                if parent.strip() not in known:
+                    issue(name, "vlan_parent_not_found", parent.strip())
+            else:
+                issue(name, "vlan_parent_missing")
+        if kind == "bridge":
+            bridges += 1
+            ports = link_names(item.get("bridge_ports"))
+            bridges_with_ports += int(bool(ports))
+            for port in ports:
+                if port not in known:
+                    issue(name, "bridge_port_not_found", port)
+        if kind == "bond":
+            for slave in link_names(item.get("slaves")):
+                if slave not in known:
+                    issue(name, "bond_slave_not_found", slave)
+    return {
+        "interface_count": len(interfaces),
+        "ipv4_count": ipv4_count,
+        "ipv6_count": ipv6_count,
+        "mac_count": mac_count,
+        "vlan_count": vlan_total,
+        "vlan_with_id_count": vlan_ids,
+        "vlan_with_parent_count": vlan_parents,
+        "bridge_count": bridges,
+        "bridge_with_ports_count": bridges_with_ports,
+        "topology_consistent": not issues,
+        "topology_issues": issues,
+    }
 
 
 class CollectionError(Exception):
@@ -67,7 +153,7 @@ def local_dmi() -> dict[str, str]:
             value = (Path("/sys/class/dmi/id") / filename).read_text().strip()
         except (PermissionError, FileNotFoundError, OSError):
             continue
-        if value:
+        if value and (field != "serial_number" or serial_valid(value)):
             result[field] = value
     return result
 
@@ -91,7 +177,9 @@ def remote_dmi(node: str, user: str, timeout: int) -> dict[str, str]:
     for line in result.stdout.splitlines():
         key, sep, value = line.partition("=")
         if sep and key in DMI_KEYS and value.strip():
-            parsed[DMI_KEYS[key]] = value.strip()
+            field = DMI_KEYS[key]
+            if field != "serial_number" or serial_valid(value):
+                parsed[field] = value.strip()
     return parsed
 
 
@@ -129,6 +217,11 @@ def normalize_interface(record: dict[str, Any]) -> dict[str, Any]:
         val = record.get(field)
         if val is not None and val != "":
             normalized[field.replace("-", "_")] = val
+    for key in ("hwaddress", "hwaddr", "mac", "mac_address"):
+        mac = normalize_mac(record.get(key))
+        if mac:
+            normalized["mac_address"] = mac
+            break
     v4 = normalized_cidr(record.get("cidr") or record.get("address"), record.get("netmask"))
     v6 = normalized_cidr(record.get("cidr6") or record.get("address6"), record.get("netmask6"))
     if v4:
@@ -156,6 +249,7 @@ def normalize_node(name: str, status: dict[str, Any], network: list[dict[str, An
         },
         "memory_total_bytes": maybe_int(memory.get("total", status.get("maxmem"))),
         "network_interfaces": interfaces,
+        "network_audit": audit_network(interfaces),
     }
     if dmi:
         result["dmi"] = dmi
@@ -173,7 +267,7 @@ def collect(client: PveshClient, requested: list[str] | None = None,
              and isinstance(item.get("node"), str) and NODE_RE.fullmatch(item["node"])}
     wanted = sorted(set(map(validate_node, requested))) if requested else sorted(known)
     report: dict[str, Any] = {
-        "schema_version": "0.1",
+        "schema_version": "0.2",
         "collected_at": datetime.now(timezone.utc).isoformat(),
         "source": {
             "tool": "pvesh", "cluster_label": cluster_label,
@@ -205,6 +299,17 @@ def collect(client: PveshClient, requested: list[str] | None = None,
         "selected": len(wanted),
         "collected": len(report["nodes"]),
         "errors": len(report["errors"]),
+    }
+    report["audit_summary"] = {
+        "nodes_with_dmi": sum(bool(n.get("dmi")) for n in report["nodes"]),
+        "nodes_with_serial": sum(bool(n.get("dmi", {}).get("serial_number")) for n in report["nodes"]),
+        "mac_addresses": sum(n["network_audit"]["mac_count"] for n in report["nodes"]),
+        "topology_issues": sum(len(n["network_audit"]["topology_issues"]) for n in report["nodes"]),
+        "topology_review_passed": (
+            len(report["nodes"]) == len(wanted)
+            and not report["errors"]
+            and all(n["network_audit"]["topology_consistent"] for n in report["nodes"])
+        ),
     }
     return report
 
@@ -247,7 +352,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     s = inventory["summary"]
-    print(f"Saved {args.output}: collected={s['collected']}/{s['selected']} errors={s['errors']}")
+    audit = inventory["audit_summary"]
+    print(f"Saved {args.output}: collected={s['collected']}/{s['selected']} errors={s['errors']} "
+          f"topology_issues={audit['topology_issues']} serials={audit['nodes_with_serial']} "
+          f"macs={audit['mac_addresses']}")
     return 0 if s["errors"] == 0 and s["collected"] > 0 else 2
 
 

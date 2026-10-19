@@ -18,9 +18,9 @@ Later: review/dry-run → NetBox REST API synchronization.
 1. Do not store cluster-specific addresses, credentials or serial numbers in this public repository. Report files are **sensitive** and must never be committed; `.gitignore` is a convenience, not an access-control boundary.
 2. No NetBox write, no API token in the first release. Never guess device types, sites, primary IPs or physical port topology from a bridge name alone.
 3. An unreachable node is an error in the saved report and yields exit code 2. Incomplete reports **must not** drive deletion or reconciliation.
-4. DMI fields from sysfs are optional, limited to vendor, product and board descriptions. Serial number and asset tag are deliberately excluded in v0.1.
+4. DMI fields from sysfs include optional vendor, product, board descriptions and product serial in v0.2. Asset tags are not collected. Missing or known-placeholder serial numbers are omitted.
 5. `cpuinfo.cores` and `cpuinfo.cpus` are recorded as returned by Proxmox, not inferred. Values missing from PVE are null.
-6. Network entries are Linux configuration abstractions (physical, bridge, bond, VLAN). A Linux bridge is **not** automatically a physical switch or a NetBox cable.
+6. Network entries are Linux configuration abstractions (physical, bridge, bond, VLAN). A Linux bridge is **not** automatically a physical switch or a NetBox cable. v0.2 checks local interface references, but its warnings are informational and do not validate physical cabling.
 7. The scope of this project is corporate sites only; home/HA2 infrastructure is excluded.
 8. The collector runs on one existing cluster member, requiring root for `pvesh`. For future off-host execution, prefer a separately scoped Proxmox API token over extending SSH privileges.
 9. Future NetBox writes must use idempotent reconciliation with an explicit source ownership flag, reviewable dry-run and no default deletes.
@@ -32,4 +32,4 @@ Later: review/dry-run → NetBox REST API synchronization.
 
 ## Data protection
 
-The resulting JSON contains real hostnames, IPs and topology and should be treated as internal operational data. For GitHub examples use RFC 5737 documentation addresses (`192.0.2.0/24`, etc.), generic hostnames and fictitious DMI identifiers. Do not publish actual generated JSON, SSH keys, NetBox API tokens or configuration containing secrets.
+The resulting JSON contains real hostnames, IPs, topology and potentially serial numbers and MACs; it must be treated as internal operational data. For GitHub examples use RFC 5737 documentation addresses (`192.0.2.0/24`, etc.), generic hostnames and fictitious DMI identifiers. Do not publish actual generated JSON, SSH keys, NetBox API tokens or configuration containing secrets.
