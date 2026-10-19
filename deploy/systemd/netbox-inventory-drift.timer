@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily read-only Proxmox to NetBox inventory drift audit
+
+[Timer]
+OnCalendar=*-*-* 05:10:00
+RandomizedDelaySec=20min
+Persistent=true
+Unit=netbox-inventory-drift.service
+
+[Install]
+WantedBy=timers.target
