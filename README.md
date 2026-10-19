@@ -128,3 +128,14 @@ The tests use synthetic PVE responses and do not need a running cluster. Output 
 ## Licence
 
 No open-source license has been chosen yet. Until one is added, normal copyright restrictions apply.
+## Read-only NetBox DCIM preview
+
+After collecting and verifying the complete Proxmox inventory with schema v0.3, run:
+
+```bash
+python3 netbox/preview.py \
+  --inventory output/proxmox-inventory-v03.json \
+  --output output/netbox-preview.json
+```
+
+The output summarizes candidate physical devices and NICs without modifying NetBox. Non-physical interfaces and IP assignments are deferred. Optional *read-only* NetBox API comparison requires an existing Site and Device Role and is documented in [docs/netbox-preview.md](docs/netbox-preview.md). The comparator intentionally has no apply mode and does not print raw serials, MACs or IPs.
