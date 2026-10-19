@@ -145,3 +145,12 @@ The offline collector and read-only preview are separate from the
 optional guarded enrichment module. The default is a dry-run; an explicit
 apply confirmation is required to update only existing device serials and
 physical NIC primary MACs. See [docs/hardware-enrichment.md](docs/hardware-enrichment.md).
+
+## Daily drift detection (read-only)
+
+`netbox/drift_audit.py` gathers a fresh cluster snapshot and compares existing
+NetBox devices, interfaces, hardware serials and physical NIC MACs via GET-only
+HTTPS. It exits 0 when clean, 1 for drift and 2 on query/collection errors.
+See [docs/daily-drift-audit.md](docs/daily-drift-audit.md) for configuration,
+read-only token permissions, CA trust and systemd timer deployment. No
+automatic NetBox writes are enabled.

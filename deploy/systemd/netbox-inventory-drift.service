@@ -1,0 +1,22 @@
+[Unit]
+Description=Read-only Proxmox to NetBox hardware inventory drift audit
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/root/netbox-inventory-toolkit
+EnvironmentFile=/etc/netbox-inventory/drift.env
+ExecStart=/usr/bin/python3 /root/netbox-inventory-toolkit/netbox/drift_audit.py --output-dir /var/lib/netbox-inventory --cluster-label corporate-pve --site-slug fm-office --role-slug hypervisor --expected-nodes 9
+SuccessExitStatus=1
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/netbox-inventory
+ProtectHome=no
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=10min
