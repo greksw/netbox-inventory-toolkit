@@ -2,16 +2,18 @@
 
 Read-only, staged discovery for **corporate** infrastructure, starting with Proxmox VE physical nodes. Source data is normalized for human review and for a **future** NetBox DCIM/IPAM importer. This repository is not an automatic NetBox synchronization service yet.
 
-## v0.1: Proxmox VE physical-node inventory
+## v0.2: Proxmox VE physical-node inventory
 
 The first collector retrieves:
 
 - Node names and CPU model, sockets, cores and logical CPUs from the Proxmox API;
 - Total installed RAM (bytes) from the Proxmox API;
 - Network configuration entries (physical interfaces, Linux bridges, bonds, VLANs, IP/prefixes and basic relationships);
-- Optional hardware vendor/model/motherboard using local DMI sysfs, or optional SSH to peer nodes.
+- Optional hardware vendor/model/motherboard and product serial using local DMI sysfs or verified-host-key SSH to cluster peers;
+- MAC values only when Proxmox explicitly exposes them (missing MAC is not synthesized);
+- Offline topology-reference audit for VLAN parent, bridge ports and bond slaves.
 
-It does **not** collect VM/CT yet, does **not** write to NetBox, does **not** invent missing data and does **not** read serial numbers.
+It does **not** collect VM/CT yet, does **not** write to NetBox and does **not** invent missing data. Real serial numbers and MACs are sensitive: never commit generated JSON.
 
 ### Requirements
 
@@ -67,6 +69,36 @@ PY
 
 **Before posting output, anonymize node names and vendor/model if required by corporate policy.** Never share the full JSON publicly.
 
+### v0.2 validation (safe counts only)
+
+After an authorized DMI collection, run:
+
+```bash
+python3 collectors/proxmox_inventory.py --dmi-ssh --cluster-label corp-pve \
+  --output output/proxmox-inventory-v02.json
+
+python3 - <<'PY'
+import json
+with open('output/proxmox-inventory-v02.json', encoding='utf-8') as f:
+    report = json.load(f)
+print('Collection:', report['summary'])
+print('Audit:', report['audit_summary'])
+for node in report['nodes']:
+    a = node['network_audit']
+    print(node['name'], 'DMI:', bool(node.get('dmi')),
+          'serial-present:', bool(node.get('dmi', {}).get('serial_number')),
+          'MAC-count:', a['mac_count'], 'topology-issues:', len(a['topology_issues']))
+    if a['topology_issues']:
+        from collections import Counter
+        print('  issue-codes:', dict(Counter(x['code'] for x in a['topology_issues'])))
+PY
+```
+
+Do **not** print serial values or raw JSON in public chats. The audit only checks
+names of interfaces within each node, not rack cabling, VLAN reachability,
+storage uplinks or NetBox model readiness. Some API responses lack MAC values;
+absence is reported as missing, not a collection error.
+
 ### Testing without Proxmox
 
 ```bash
@@ -78,7 +110,7 @@ The tests use synthetic PVE responses and do not need a running cluster. Output 
 
 ## Next milestones
 
-1. Validate this collector against the nine corporate Proxmox nodes, record field differences and expected interfaces.
+1. Validate v0.2 on the nine corporate Proxmox nodes, record serial/MAC coverage and topology issue codes.
 2. Add QEMU/LXC inventory (VMIDs, node membership and vNIC metadata) in a separate PR.
 3. Add a human-reviewed NetBox data model (Sites, Device Types, Devices, Clusters, VMs, Interfaces, VLANs and Prefixes).
 4. Implement `check`, `dry-run`, `apply` for an **idempotent** NetBox API importer; read-only is the default.
