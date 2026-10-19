@@ -139,3 +139,9 @@ python3 netbox/preview.py \
 ```
 
 The output summarizes candidate physical devices and NICs without modifying NetBox. Non-physical interfaces and IP assignments are deferred. Optional *read-only* NetBox API comparison requires an existing Site and Device Role and is documented in [docs/netbox-preview.md](docs/netbox-preview.md). The comparator intentionally has no apply mode and does not print raw serials, MACs or IPs.
+## Enrich existing NetBox hardware
+
+The offline collector and read-only preview are separate from the
+optional guarded enrichment module. The default is a dry-run; an explicit
+apply confirmation is required to update only existing device serials and
+physical NIC primary MACs. See [docs/hardware-enrichment.md](docs/hardware-enrichment.md).
