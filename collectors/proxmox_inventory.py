@@ -52,7 +52,84 @@ def normalize_mac(value: Any) -> str | None:
     if not isinstance(value, str):
         return None
     normalized = value.strip().lower().replace("-", ":")
-    return normalized if MAC_RE.fullmatch(normalized) else None
+    if not MAC_RE.fullmatch(normalized):
+        return None
+    first = int(normalized[:2], 16)
+    if first & 1 or normalized == "00:00:00:00:00:00":
+        return None
+    return normalized
+
+
+def parse_mac_records(output: str) -> dict[str, str]:
+    """Parse fixed-format host probe output without trusting arbitrary strings."""
+    macs: dict[str, str] = {}
+    for line in output.splitlines():
+        name, sep, raw_mac = line.partition("=")
+        if not sep or not name or "/" in name or name in {".", ".."}:
+            continue
+        if not re.fullmatch(r"[A-Za-z0-9_.:-]{1,15}", name):
+            continue
+        mac = normalize_mac(raw_mac)
+        if mac:
+            macs[name] = mac
+    return macs
+
+
+def local_physical_nic_macs(root: Path = Path("/sys/class/net")) -> dict[str, str]:
+    """Current active MAC, not necessarily the factory-programmed NIC MAC."""
+    output: dict[str, str] = {}
+    try:
+        candidates = list(root.iterdir())
+    except OSError as exc:
+        raise CollectionError(f"Cannot list physical NICs: {exc}") from exc
+    for nic in candidates:
+        if not (nic / "device").exists():
+            continue
+        try:
+            mac = normalize_mac((nic / "address").read_text().strip())
+        except OSError:
+            continue
+        if mac:
+            output[nic.name] = mac
+    return output
+
+
+PHYSICAL_NIC_PROBE = (
+    'for d in /sys/class/net/*; do '
+    '[ -e "$d/device" ] || continue; [ -r "$d/address" ] || continue; '
+    'printf "%s=" "$(basename "$d")"; cat "$d/address"; done'
+)
+
+
+def remote_physical_nic_macs(node: str, user: str, timeout: int) -> dict[str, str]:
+    """Get current MACs of hardware-backed Linux NICs over verified SSH."""
+    validate_node(node)
+    if not SSH_USER_RE.fullmatch(user):
+        raise ValueError("Invalid SSH username")
+    try:
+        result = subprocess.run(
+            ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
+             "-o", "PasswordAuthentication=no", "-o", f"ConnectTimeout={timeout}",
+             "-o", "LogLevel=ERROR", "--", f"{user}@{node}", PHYSICAL_NIC_PROBE],
+            capture_output=True, text=True, timeout=timeout + 8, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise CollectionError(f"NIC MAC SSH for {node}: {exc}") from exc
+    if result.returncode:
+        detail = (result.stderr or "SSH failed").strip()[:200]
+        raise CollectionError(f"NIC MAC SSH for {node}: {detail}")
+    return parse_mac_records(result.stdout)
+
+
+def merge_physical_macs(node: dict[str, Any], macs: dict[str, str]) -> None:
+    """Only annotate NICs whose PVE type is eth; do not assign to VLAN/bridge."""
+    for item in node["network_interfaces"]:
+        if item.get("type") != "eth":
+            continue
+        current_mac = macs.get(item["name"])
+        if current_mac:
+            item["mac_address"] = current_mac
+    node["network_audit"] = audit_network(node["network_interfaces"])
 
 
 def link_names(value: Any) -> list[str]:
@@ -257,7 +334,8 @@ def normalize_node(name: str, status: dict[str, Any], network: list[dict[str, An
 
 
 def collect(client: PveshClient, requested: list[str] | None = None,
-            include_remote_dmi: bool = False, ssh_user: str = "root", ssh_timeout: int = 5,
+            include_remote_dmi: bool = False, include_remote_macs: bool = False,
+            ssh_user: str = "root", ssh_timeout: int = 5,
             cluster_label: str | None = None, local_name: str | None = None) -> dict[str, Any]:
     """Return a complete report. Node failures appear in errors and are not silently dropped."""
     discovered = client.get("/nodes")
@@ -267,7 +345,7 @@ def collect(client: PveshClient, requested: list[str] | None = None,
              and isinstance(item.get("node"), str) and NODE_RE.fullmatch(item["node"])}
     wanted = sorted(set(map(validate_node, requested))) if requested else sorted(known)
     report: dict[str, Any] = {
-        "schema_version": "0.2",
+        "schema_version": "0.3",
         "collected_at": datetime.now(timezone.utc).isoformat(),
         "source": {
             "tool": "pvesh", "cluster_label": cluster_label,
@@ -292,7 +370,18 @@ def collect(client: PveshClient, requested: list[str] | None = None,
                     dmi = remote_dmi(name, ssh_user, ssh_timeout)
                 except CollectionError as exc:
                     report["errors"].append({"node": name, "stage": "dmi", "error": str(exc)})
-            report["nodes"].append(normalize_node(name, status, network, dmi))
+            node_data = normalize_node(name, status, network, dmi)
+            if name == (local_name or socket.gethostname().split(".")[0]):
+                try:
+                    merge_physical_macs(node_data, local_physical_nic_macs())
+                except CollectionError as exc:
+                    report["errors"].append({"node": name, "stage": "mac", "error": str(exc)})
+            elif include_remote_macs:
+                try:
+                    merge_physical_macs(node_data, remote_physical_nic_macs(name, ssh_user, ssh_timeout))
+                except CollectionError as exc:
+                    report["errors"].append({"node": name, "stage": "mac", "error": str(exc)})
+            report["nodes"].append(node_data)
         except (CollectionError, subprocess.TimeoutExpired, OSError) as exc:
             report["errors"].append({"node": name, "stage": "pvesh", "error": str(exc)[:500]})
     report["summary"] = {
@@ -335,6 +424,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", type=Path, default=Path("output/proxmox-inventory.json"))
     parser.add_argument("--cluster-label", help="Optional human-readable cluster label")
     parser.add_argument("--dmi-ssh", action="store_true", help="Read DMI sysfs of remote cluster nodes over SSH")
+    parser.add_argument("--mac-ssh", action="store_true", help="Read current MACs for hardware-backed remote NICs over verified SSH")
     parser.add_argument("--ssh-user", default="root")
     parser.add_argument("--ssh-timeout", type=int, default=5)
     args = parser.parse_args(argv)
@@ -345,6 +435,7 @@ def main(argv: list[str] | None = None) -> int:
             validate_node(node)
         inventory = collect(PveshClient(), requested=args.node,
                             include_remote_dmi=args.dmi_ssh,
+                            include_remote_macs=args.mac_ssh,
                             ssh_user=args.ssh_user, ssh_timeout=args.ssh_timeout,
                             cluster_label=args.cluster_label)
         save_json(inventory, args.output)
