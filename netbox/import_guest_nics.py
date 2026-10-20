@@ -17,7 +17,7 @@ import re
 VALID_MAC = re.compile(r"^(?:[0-9a-f]{2}:){5}[0-9a-f]{2}$")
 VALID_NAME = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
 VALID_BRIDGE = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
-CONFIRM = "CREATE_31_GUEST_INTERFACES_30_MACS"
+CONFIRM = "APPLY_REVIEWED_GUEST_INTERFACES"
 
 
 class GuestNICImportError(RuntimeError):
@@ -222,8 +222,8 @@ def reconcile(plan, *, cluster, expected_vms, apply=False):
                 "mac_addresses_held": len(plan) - len(macs)}
 
 
-def run(path, *, cluster="HI-PVE2", expected_vms=31, expected_nics=31,
-        expected_macs=30, held_vmids=(362,), apply=False,
+def run(path, *, cluster, expected_vms, expected_nics,
+        expected_macs, held_vmids, apply=False,
         confirmation="", freshness_seconds=3600):
     """NetBox manage.py shell entrypoint; no automatic writes by default.
 
