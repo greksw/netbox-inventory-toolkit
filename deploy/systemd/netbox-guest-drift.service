@@ -1,0 +1,23 @@
+[Unit]
+Description=Read-only Proxmox QEMU/LXC to NetBox guest drift audit
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/root/netbox-inventory-toolkit
+EnvironmentFile=/etc/netbox-inventory/drift.env
+EnvironmentFile=/etc/netbox-inventory/guest-audit.env
+ExecStart=/usr/bin/python3 /root/netbox-inventory-toolkit/netbox/audit_guest_nics.py --cluster ${GUEST_CLUSTER} --expected-guests ${GUEST_EXPECTED_GUESTS} --held-vmid ${GUEST_HELD_VMID} --output-dir /var/lib/netbox-guest-audit
+SuccessExitStatus=1
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/netbox-guest-audit
+ProtectHome=no
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=10min
