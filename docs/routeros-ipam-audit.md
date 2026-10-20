@@ -20,3 +20,35 @@ The CLI intentionally does not provide a dynamic address approval switch. Unexpe
 No RouterOS SSH/API collector or NetBox API exporter has been deployed yet. Full RouterOS bridge VLAN tables, VLAN interfaces with multiple gateway prefixes, overlapping scopes, VRFs, routing state, and VM guest IPAM are outside this initial model. No changes to existing Proxmox audits or Zabbix services. Do not schedule this prototype before a live read-only collection and a complete baseline review.
 
 Run offline unit tests with `python3 -m unittest discover -s tests -v`.
+
+## Dynamic IPsec Mode Config addresses
+
+A RouterOS address with `dynamic=true` **must not automatically be treated as an
+unmanaged static IP discrepancy**. It can be installed by an IKEv2 client
+Mode Config rather than a DHCP client. Before approving an exception, verify
+all of the following directly on RouterOS:
+
+1. The IPsec identity binds the expected peer to the client Mode Config
+   (`responder=no`), and the active IKE peer is established with Phase 2.
+2. A **dynamic** IPsec policy exists for the same peer and selects the
+   observed local IPv4 address (typically a host /32 selector).
+3. A **dynamic** `srcnat` rule marked as `ipsec mode-config` translates to
+   that same IPv4 address and has the Mode Config's matching connection mark.
+4. The address appears as dynamic under `/ip address`. Active-peer
+   `dynamic-address` can be blank; an empty field alone neither confirms
+   nor disproves Mode Config address usage.
+
+Treat the peer, policy, NAT and assigned-address observations as one reviewed
+runtime evidence set. For a subsequent collector, record only the minimum
+required nonsecret attributes and verify their linkage before classifying a
+dynamic address as an **expected VPN runtime assignment**. A changed or missing
+expected assignment should be reported separately from static IPAM drift,
+not silently ignored. The dynamic /32 policy selector and dynamically
+installed interface address prefix length may be different; compare the
+negotiated **IPv4 host address**, not the two CIDR strings verbatim.
+
+**Current limitation:** the offline snapshot format does not include IPsec
+policy/NAT evidence, so the default command still returns
+`dynamic_review_required`. Do not mark all dynamic addresses as exempt, or
+claim the existing prototype automatically verifies their IPsec provenance.
+No live network changes are required for this classification.
