@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily read-only Proxmox to NetBox QEMU/LXC guest drift audit
+
+[Timer]
+OnCalendar=*-*-* 05:45:00
+RandomizedDelaySec=15min
+Persistent=true
+Unit=netbox-guest-drift.service
+
+[Install]
+WantedBy=timers.target
