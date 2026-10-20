@@ -1,6 +1,6 @@
 # RouterOS IPAM audit — offline prototype
 
-This is an **offline, read-only comparison engine**, not an installed RouterOS collector, Zabbix integration, or systemd timer. No network I/O and no writes to MikroTik, Proxmox or NetBox are performed.
+The audit engine is **offline and read-only**. Experimental HTTPS GET-only source adapters are included for later manually approved integration; no production collector, Zabbix integration, or systemd timer is installed. No network I/O and no writes to MikroTik, Proxmox or NetBox are performed.
 
 ## Inputs
 
@@ -17,7 +17,7 @@ The CLI intentionally does not provide a dynamic address approval switch. Unexpe
 
 ### Limitations
 
-No RouterOS SSH/API collector or NetBox API exporter has been deployed yet. Full RouterOS bridge VLAN tables, VLAN interfaces with multiple gateway prefixes, overlapping scopes, VRFs, routing state, and VM guest IPAM are outside this initial model. No changes to existing Proxmox audits or Zabbix services. Do not schedule this prototype before a live read-only collection and a complete baseline review.
+Experimental GET-only RouterOS REST and NetBox snapshot adapters exist in `routeros/ipam_sources.py`, but no live credentials, production CLI wiring, scheduled deployment, or NetBox/RouterOS service changes have been made. Full RouterOS bridge VLAN tables, VLAN interfaces with multiple gateway prefixes, overlapping scopes, VRFs, routing state, and VM guest IPAM are outside this initial model. No changes to existing Proxmox audits or Zabbix services. Do not schedule this prototype before a live read-only collection and a complete baseline review.
 
 Run offline unit tests with `python3 -m unittest discover -s tests -v`.
 
@@ -52,3 +52,9 @@ policy/NAT evidence, so the default command still returns
 `dynamic_review_required`. Do not mark all dynamic addresses as exempt, or
 claim the existing prototype automatically verifies their IPsec provenance.
 No live network changes are required for this classification.
+
+## Experimental HTTPS adapters (not deployed)
+
+`routeros/ipam_sources.py` provides `RouterOSReader`, `NetBoxReader`, `routeros_snapshot()`, and `netbox_snapshot()` for later integration. They restrict HTTPS origins, forbid redirects/proxies, verify server certificates, and use GET only. RouterOS endpoints: `/rest/interface/vlan` and `/rest/ip/address`. NetBox endpoints are allowlisted for device, interface, VLAN, Prefix and IP-address reads. The adapters require a **reviewed site, VLAN group and router identity**, and the NetBox API access should use a dedicated read-only token. RouterOS REST must be accessible through an already hardened `www-ssl` service with a dedicated read-only RouterOS user; do not enable HTTP `www` or weaken TLS to accommodate the collector.
+
+These adapters have only synthetic/offline tests at this stage. Next, determine availability of TCP/443 from the auditor host, CA trust and least-privilege account access before live tests. Existing Proxmox drift timers and Zabbix agents remain untouched.
