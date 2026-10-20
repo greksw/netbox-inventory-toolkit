@@ -13,14 +13,6 @@ VISIBLE = "NetBox Guest Inventory Drift"
 KEYS = ("netbox.guest.audit.status", "netbox.guest.audit.differences", "netbox.guest.audit.timestamp")
 NAMES = ("NetBox guest audit status (0=clean,1=drift,2=error)",
          "NetBox guest audit differences", "NetBox guest audit timestamp")
-TRIGGERS = (
-    ("NetBox guest: Inventory drift detected", 2, "last(/{}/{} )=1"),
-    ("NetBox guest: Inventory audit failed", 4, "last(/{}/{} )=2"),
-    ("NetBox guest: Inventory audit is stale (>26h)", 3, "now()-last(/{}/{} )>93600"),
-    ("NetBox guest: No audit monitoring data received", 3, "nodata(/{}/{} ,15m)=1"),
-)
-
-
 def find_exact(records, field, value):
     matches = [r for r in records if r.get(field) == value]
     if len(matches) > 1:
@@ -40,10 +32,8 @@ def execute(api, host_name, apply=False):
     if template is None:
         groups = api.call("templategroup.get", {"output": ["groupid", "name"], "filter": {"name": ["Templates"]}})
         if not groups:
-            groups = api.call("templategroup.get", {"output": ["groupid", "name"]})
-        if not groups:
-            raise RuntimeError("No template groups exist")
-        group = find_exact(groups, "name", "Templates") or sorted(groups, key=lambda g: g["groupid"])[0]
+            raise RuntimeError("Template group Templates not found; configure it first")
+        group = find_exact(groups, "name", "Templates")
         print("CREATE template in group:", group["name"])
         if apply:
             tid = api.call("template.create", {"host": TEMPLATE, "name": VISIBLE,
