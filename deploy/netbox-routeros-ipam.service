@@ -1,0 +1,27 @@
+[Unit]
+Description=Read-only RouterOS to NetBox IPAM drift audit
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/netbox-inventory-toolkit
+ExecStart=/usr/bin/python3.11 -m routeros.textfile_export --output-dir /var/lib/node_exporter/textfile_collector
+SuccessExitStatus=1
+TimeoutStartSec=180
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/node_exporter/textfile_collector
+ProtectHome=read-only
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+LockPersonality=yes
+RestrictSUIDSGID=yes
+
+# DRIFT exits 1 and is reported through Prometheus, not as a service failure.
+# ERROR exits 2 and remains a systemd failure.
