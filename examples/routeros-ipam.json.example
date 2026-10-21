@@ -1,0 +1,20 @@
+{
+  "schema_version": "routeros-netbox-ipam-live-v1",
+  "routeros": {
+    "host": "192.0.2.1",
+    "username": "audit",
+    "identity_file": "/etc/netbox-inventory/ssh/routeros_audit",
+    "known_hosts_file": "/root/.ssh/known_hosts"
+  },
+  "netbox": {
+    "origin": "https://netbox.example.invalid",
+    "token_file": "/etc/netbox-inventory/netbox-api.token",
+    "ca_file": "/etc/netbox-inventory/ca.pem",
+    "router_name": "example-router",
+    "site_slug": "example-site",
+    "vlan_group_slug": "example-vlans"
+  },
+  "baseline": {"vlans": 2, "static_ipv4": 3},
+  "approved_dynamic": [],
+  "max_age_minutes": 60
+}
