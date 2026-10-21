@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily read-only RouterOS/NetBox IPAM audit
+
+[Timer]
+OnCalendar=*-*-* 06:45:00
+RandomizedDelaySec=5min
+AccuracySec=1min
+Persistent=true
+Unit=netbox-routeros-ipam.service
+
+[Install]
+WantedBy=timers.target
