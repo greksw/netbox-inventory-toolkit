@@ -105,7 +105,7 @@ def atomic_publish(directory: str, body: str) -> None:
             fh.write(body)
             fh.flush()
             os.fsync(fh.fileno())
-            os.fchmod(fh.fileno(), 0o640)
+            os.fchmod(fh.fileno(), 0o644)
         os.replace(temporary, parent / FILE_NAME)
     finally:
         if temporary is not None:
